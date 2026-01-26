@@ -508,7 +508,9 @@ button:disabled {
   top: 100%;
   left: 0;
   margin-top: 6px;
-  min-width: 240px;
+  min-width: 320px;
+  width: max-content;
+  max-width: min(420px, 92vw);
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;

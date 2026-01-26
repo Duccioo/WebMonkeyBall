@@ -1119,12 +1119,6 @@ function collideBallWithCylinder(ball, cylinder) {
   stack.rigidInvTfPoint(ball.pos, cylinderPosLocal);
   stack.rigidInvTfPoint(ball.prevPos, cylinderPrevLocal);
 
-  const dist2d = sumSq2(cylinderPosLocal.x, cylinderPosLocal.z);
-  const radiusSum = cylinder.radius + ball.radius;
-  if (dist2d > radiusSum * radiusSum || dist2d < FLT_EPSILON) {
-    return;
-  }
-
   if (cylinderPrevLocal.y < 0.5 * -cylinder.height) {
     cylinderCircle.pos.x = 0;
     cylinderCircle.pos.y = 0.5 * -cylinder.height;
@@ -1147,6 +1141,12 @@ function collideBallWithCylinder(ball, cylinder) {
     cylinderCircle.rot.z = cylinder.rot.z;
     stack.tfPoint(cylinderCircle.pos, cylinderCircle.pos);
     collideBallWithCircle(ball, cylinderCircle);
+    return;
+  }
+
+  const dist2d = sumSq2(cylinderPosLocal.x, cylinderPosLocal.z);
+  const radiusSum = cylinder.radius + ball.radius;
+  if (dist2d > radiusSum * radiusSum || dist2d < FLT_EPSILON) {
     return;
   }
 
