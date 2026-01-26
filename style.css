@@ -63,6 +63,16 @@ body.gameplay-active {
   pointer-events: auto;
 }
 
+.touch-controls.preview {
+  inset: auto;
+  left: 16px;
+  bottom: 16px;
+  width: min(46vw, 240px);
+  height: min(46vw, 240px);
+  pointer-events: auto;
+  z-index: 11;
+}
+
 .touch-controls.hidden {
   display: none;
 }
@@ -77,6 +87,12 @@ body.gameplay-active {
 
 .touch-controls .joystick.hidden {
   display: none;
+}
+
+.touch-controls.preview .joystick {
+  left: 50%;
+  top: 50%;
+  pointer-events: auto;
 }
 
 .touch-controls .joystick-base {
@@ -270,6 +286,48 @@ body.gameplay-active {
   stroke-width: 4;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.input-falloff-visuals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.input-preview {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 8, 12, 0.6);
+  overflow: hidden;
+}
+
+.input-preview-grid {
+  position: absolute;
+  inset: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+}
+
+.input-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.input-dot.raw {
+  background: #fff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+}
+
+.input-dot.processed {
+  background: rgba(255, 77, 61, 0.95);
+  box-shadow: 0 0 6px rgba(255, 77, 61, 0.75);
 }
 
 .slider-field span {

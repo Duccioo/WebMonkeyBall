@@ -37,6 +37,7 @@ export class Input {
     this.gyroSensitivity = 25;
     this.joystickScale = 1;
     this.inputFalloff = 1.5;
+    this.touchPreview = false;
 
     this.touchRoot = document.getElementById('touch-controls');
     this.joystickEl = this.touchRoot?.querySelector?.('.joystick') ?? null;
@@ -64,6 +65,15 @@ export class Input {
         if (!this.isTouchLayerActive()) {
           return;
         }
+        if (this.isOverlayVisible() && this.touchPreview) {
+          if (!(event.target instanceof HTMLElement)) {
+            return;
+          }
+          const onJoystick = event.target.closest('.joystick');
+          if (!onJoystick) {
+            return;
+          }
+        }
         if (this.touch.pointerId !== null) {
           return;
         }
@@ -71,13 +81,21 @@ export class Input {
         event.preventDefault();
         this.touch.pointerId = event.pointerId;
         this.touch.active = true;
-        this.touch.centerX = event.clientX;
-        this.touch.centerY = event.clientY;
+        if (this.isOverlayVisible() && this.touchPreview && this.joystickEl) {
+          const rect = this.joystickEl.getBoundingClientRect();
+          this.touch.centerX = rect.left + rect.width / 2;
+          this.touch.centerY = rect.top + rect.height / 2;
+        } else {
+          this.touch.centerX = event.clientX;
+          this.touch.centerY = event.clientY;
+        }
         this.touch.value.x = 0;
         this.touch.value.y = 0;
 
         this.touchRoot?.setPointerCapture?.(event.pointerId);
-        this.showJoystickAt(event.clientX, event.clientY);
+        if (!this.isOverlayVisible() || !this.touchPreview) {
+          this.showJoystickAt(event.clientX, event.clientY);
+        }
         this.updateJoystickHandle(0, 0);
       },
 
@@ -105,8 +123,8 @@ export class Input {
           ny = py / MAX_RADIUS;
         }
 
-        this.touch.value.x = clamp(nx * 2, -1, 1);
-        this.touch.value.y = clamp(ny * 2, -1, 1);
+        this.touch.value.x = clamp(nx * 1.5, -1, 1);
+        this.touch.value.y = clamp(ny * 1.5, -1, 1);
         this.updateJoystickHandle(px, py);
       },
 
@@ -258,7 +276,7 @@ export class Input {
     if (!this.touchRoot) {
       return false;
     }
-    if (this.isOverlayVisible()) {
+    if (this.isOverlayVisible() && !this.touchPreview) {
       return false;
     }
     return true;
@@ -269,19 +287,30 @@ export class Input {
       return;
     }
 
-    const shouldEnable = mode === 'touch' && this.hasTouch && !this.isOverlayVisible();
-    if (!shouldEnable) {
+    const overlayVisible = this.isOverlayVisible();
+    const shouldEnable = mode === 'touch' && this.hasTouch && !overlayVisible;
+    const shouldPreview = mode === 'touch' && this.hasTouch && overlayVisible && this.touchPreview;
+    if (!shouldEnable && !shouldPreview) {
       if (this.touch.active) {
         this.endTouch();
       }
       this.touchRoot.classList.remove('active');
+      this.touchRoot.classList.remove('preview');
       this.touchRoot.classList.add('hidden');
       this.joystickEl?.classList.add('hidden');
       return;
     }
 
     this.touchRoot.classList.remove('hidden');
-    this.touchRoot.classList.add('active');
+    if (shouldEnable) {
+      this.touchRoot.classList.add('active');
+      this.touchRoot.classList.remove('preview');
+      this.joystickEl?.classList.add('hidden');
+    } else {
+      this.touchRoot.classList.remove('active');
+      this.touchRoot.classList.add('preview');
+      this.joystickEl?.classList.remove('hidden');
+    }
   }
 
   showJoystickAt(x, y) {
@@ -306,6 +335,9 @@ export class Input {
   }
 
   hideJoystick() {
+    if (this.touchPreview && this.isOverlayVisible()) {
+      return;
+    }
     this.joystickEl?.classList.add('hidden');
   }
 
@@ -365,6 +397,29 @@ export class Input {
 
   setInputFalloff(value) {
     this.inputFalloff = clamp(value, 1, 2);
+  }
+
+  setTouchPreview(enabled) {
+    this.touchPreview = !!enabled;
+    this.syncTouchLayer(this.getControlMode());
+    if (!this.touchPreview && this.touch.active) {
+      this.endTouch();
+    }
+  }
+
+  getRawInputPreview() {
+    if (this.hasTouch && this.touch.active) {
+      return { x: this.touch.value.x, y: this.touch.value.y };
+    }
+    const padStick = this.getGamepadStick();
+    if (padStick && (Math.abs(padStick.x) > 0 || Math.abs(padStick.y) > 0)) {
+      return padStick;
+    }
+    return null;
+  }
+
+  applyInputFalloffToStick(stick) {
+    return applyInputFalloff(stick, this.inputFalloff);
   }
 
   wasPressed(code) {
@@ -613,12 +668,12 @@ function readPadStick(pad) {
 }
 
 function applyInputFalloff(stick, power) {
-  const magnitude = Math.hypot(stick.x, stick.y);
-  if (magnitude <= 0) {
+  const maxAxis = Math.max(Math.abs(stick.x), Math.abs(stick.y));
+  if (maxAxis <= 0) {
     return stick;
   }
-  const clamped = Math.min(1, magnitude);
+  const clamped = Math.min(1, maxAxis);
   const eased = Math.pow(clamped, power);
-  const scale = eased / magnitude;
+  const scale = eased / maxAxis;
   return { x: stick.x * scale, y: stick.y * scale };
 }

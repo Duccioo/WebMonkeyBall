@@ -76,6 +76,9 @@ const inputFalloffInput = document.getElementById('input-falloff') as HTMLInputE
 const inputFalloffValue = document.getElementById('input-falloff-value') as HTMLOutputElement | null;
 const inputFalloffCurveWrap = document.getElementById('input-falloff-curve-wrap') as HTMLElement | null;
 const inputFalloffPath = document.getElementById('input-falloff-path') as SVGPathElement | null;
+const inputPreview = document.getElementById('input-preview') as HTMLElement | null;
+const inputRawDot = document.getElementById('input-raw-dot') as HTMLElement | null;
+const inputProcessedDot = document.getElementById('input-processed-dot') as HTMLElement | null;
 const startButton = document.getElementById('start') as HTMLButtonElement;
 const resumeButton = document.getElementById('resume') as HTMLButtonElement;
 const difficultySelect = document.getElementById('difficulty') as HTMLSelectElement;
@@ -113,6 +116,7 @@ function setOverlayVisible(visible: boolean) {
   canvas.style.pointerEvents = visible ? 'none' : 'auto';
   document.body.classList.toggle('gameplay-active', !visible);
   updateMobileMenuButtonVisibility();
+  syncTouchPreviewVisibility();
 }
 
 const STAGE_FADE_MS = 333;
@@ -705,6 +709,31 @@ function updateFalloffCurve(power: number) {
   inputFalloffPath.setAttribute('d', path);
 }
 
+function updateInputPreview() {
+  if (!inputPreview || !inputRawDot || !inputProcessedDot) {
+    return;
+  }
+  const raw = game.input?.getRawInputPreview?.();
+  if (!raw) {
+    inputRawDot.style.opacity = '0';
+    inputProcessedDot.style.opacity = '0';
+    return;
+  }
+  const processed = game.input?.applyInputFalloffToStick?.(raw) ?? raw;
+  inputRawDot.style.opacity = '1';
+  inputProcessedDot.style.opacity = '1';
+  const placeDot = (dot: HTMLElement, value: { x: number; y: number }) => {
+    const clampedX = clamp(value.x, -1, 1);
+    const clampedY = clamp(value.y, -1, 1);
+    const x = ((clampedX + 1) / 2) * 100;
+    const y = ((clampedY + 1) / 2) * 100;
+    dot.style.left = `${x}%`;
+    dot.style.top = `${y}%`;
+  };
+  placeDot(inputRawDot, raw);
+  placeDot(inputProcessedDot, processed);
+}
+
 function updateControlModeSettingsVisibility() {
   if (!controlModeSelect || !controlModeSettings) {
     return;
@@ -720,6 +749,7 @@ function updateControlModeSettingsVisibility() {
     touchSettings?.classList.add('hidden');
     inputFalloffBlock?.classList.toggle('hidden', !hasController);
     inputFalloffCurveWrap?.classList.toggle('hidden', !hasController);
+    inputPreview?.classList.toggle('hidden', !hasController);
     return;
   }
   const mode = controlModeSelect.value;
@@ -727,7 +757,9 @@ function updateControlModeSettingsVisibility() {
   touchSettings?.classList.toggle('hidden', mode !== 'touch');
   const showFalloff = mode === 'touch' || hasController;
   inputFalloffBlock?.classList.toggle('hidden', !showFalloff);
-  inputFalloffCurveWrap?.classList.toggle('hidden', mode === 'gyro');
+  const hideCurve = mode === 'gyro';
+  inputFalloffCurveWrap?.classList.toggle('hidden', hideCurve);
+  inputPreview?.classList.toggle('hidden', hideCurve);
 }
 
 function maybeUpdateControlModeSettings(now: number) {
@@ -738,11 +770,19 @@ function maybeUpdateControlModeSettings(now: number) {
   updateControlModeSettingsVisibility();
 }
 
+function syncTouchPreviewVisibility() {
+  const overlayVisible = !overlay.classList.contains('hidden');
+  const mode = controlModeSelect?.value;
+  const shouldPreview = overlayVisible && mode === 'touch';
+  game.input?.setTouchPreview?.(shouldPreview);
+}
+
 function renderFrame(now: number) {
   requestAnimationFrame(renderFrame);
 
   updateGyroHelper();
   maybeUpdateControlModeSettings(now);
+  updateInputPreview();
 
   if (!running || !viewerInput || !camera) {
     lastTime = now;
@@ -915,6 +955,7 @@ bindRangeControl(
 
 updateControlModeSettingsVisibility();
 updateFalloffCurve(game.input?.inputFalloff ?? 1.5);
+syncTouchPreviewVisibility();
 
 smb2ModeSelect?.addEventListener('change', () => {
   updateSmb2ModeFields();
@@ -934,6 +975,7 @@ gameSourceSelect?.addEventListener('change', () => {
 
 controlModeSelect?.addEventListener('change', () => {
   updateControlModeSettingsVisibility();
+  syncTouchPreviewVisibility();
 });
 
 window.addEventListener('gamepadconnected', () => {
