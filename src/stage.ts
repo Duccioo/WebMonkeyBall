@@ -1,4 +1,5 @@
 import { lzssDecompress } from './lzs.js';
+import { fetchPackBuffer } from './pack.js';
 import ArrayBufferSlice from './noclip/ArrayBufferSlice.js';
 import { CommonNlModelID } from './noclip/SuperMonkeyBall/NlModelInfo.js';
 import { parseObj as parseNlObj } from './noclip/SuperMonkeyBall/NaomiLib.js';
@@ -3078,11 +3079,13 @@ export async function loadStageModelBounds(stageId, basePath = STAGE_BASE_PATHS.
   const id = formatStageId(stageId);
   const gmaPath = `${basePath}/st${id}/st${id}.gma`;
   const tplPath = `${basePath}/st${id}/st${id}.tpl`;
-  const [gmaResponse, tplResponse] = await Promise.all([fetch(gmaPath), fetch(tplPath)]);
-  if (!gmaResponse.ok || !tplResponse.ok) {
+  let gmaBuffer;
+  let tplBuffer;
+  try {
+    [gmaBuffer, tplBuffer] = await Promise.all([fetchPackBuffer(gmaPath), fetchPackBuffer(tplPath)]);
+  } catch {
     return null;
   }
-  const [gmaBuffer, tplBuffer] = await Promise.all([gmaResponse.arrayBuffer(), tplResponse.arrayBuffer()]);
   const tpl = parseAVTpl(tplBuffer, `st${id}`);
   const gma = parseGma(gmaBuffer, tpl);
   const boundSphere = computeGmaBoundSphere(gma, modelNames) ?? computeGmaBoundSphere(gma);
@@ -3095,11 +3098,13 @@ export async function loadStageModelBounds(stageId, basePath = STAGE_BASE_PATHS.
 export async function loadGoalTapeAnchorY(basePath = STAGE_BASE_PATHS.smb1, gameSource = 'smb1') {
   const commonNlPath = `${basePath}/init/common_p.lz`;
   const commonNlTplPath = `${basePath}/init/common.lz`;
-  const [nlResponse, tplResponse] = await Promise.all([fetch(commonNlPath), fetch(commonNlTplPath)]);
-  if (!nlResponse.ok || !tplResponse.ok) {
+  let nlBuffer;
+  let tplBuffer;
+  try {
+    [nlBuffer, tplBuffer] = await Promise.all([fetchPackBuffer(commonNlPath), fetchPackBuffer(commonNlTplPath)]);
+  } catch {
     return null;
   }
-  const [nlBuffer, tplBuffer] = await Promise.all([nlResponse.arrayBuffer(), tplResponse.arrayBuffer()]);
   const tplSlice = decompressLZ(new ArrayBufferSlice(tplBuffer));
   const nlSlice = decompressLZ(new ArrayBufferSlice(nlBuffer));
   if (!tplSlice.byteLength || !nlSlice.byteLength) {
@@ -3120,11 +3125,7 @@ export async function loadGoalTapeAnchorY(basePath = STAGE_BASE_PATHS.smb1, game
 export async function loadStageDef(stageId, basePath = STAGE_BASE_PATHS.smb1, gameSource = 'smb1') {
   const id = formatStageId(stageId);
   const path = `${basePath}/st${id}/STAGE${id}.lz`;
-  const response = await fetch(path);
-  if (!response.ok) {
-    throw new Error(`Failed to load stage file: ${path}`);
-  }
-  const buffer = await response.arrayBuffer();
+  const buffer = await fetchPackBuffer(path);
   const decompressed = lzssDecompress(buffer);
   const view = new Uint8Array(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
   const stage = parseStageDef(view, gameSource);

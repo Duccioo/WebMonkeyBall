@@ -1,4 +1,5 @@
-import { DEFAULT_STAGE_TIME } from './constants.js';
+import { DEFAULT_STAGE_TIME, GAME_SOURCES } from './constants.js';
+import { getPackCourseData, getPackStageTimeOverride, hasPackForGameSource } from './pack.js';
 
 type ChallengeEntry = {
   id: number;
@@ -234,7 +235,7 @@ export const MB2WS_STORY_ORDER = [
   [308, 309, 310, 311, 312, 313, 314, 315, 316, 317],
 ] as const;
 
-export type Mb2wsChallengeDifficulty = keyof typeof MB2WS_CHALLENGE_ORDER;
+export type Mb2wsChallengeDifficulty = keyof typeof MB2WS_CHALLENGE_ORDER | string;
 
 export type Mb2wsCourseConfig =
   | {
@@ -248,7 +249,65 @@ export type Mb2wsCourseConfig =
       stageIndex: number;
     };
 
-const STORY_FLAT_ORDER = MB2WS_STORY_ORDER.flat();
+function computeChallengeBonusFlags(list: number[]) {
+  return list.map((_id, index) => {
+    const stageNumber = index + 1;
+    if (stageNumber === 5) {
+      return true;
+    }
+    if (stageNumber % 10 === 0) {
+      return stageNumber !== list.length;
+    }
+    return false;
+  });
+}
+
+function normalizeBonusFlags(list: number[], flags: boolean[] | null | undefined) {
+  if (!flags || flags.length === 0) {
+    return computeChallengeBonusFlags(list);
+  }
+  const normalized = flags.slice(0, list.length);
+  while (normalized.length < list.length) {
+    normalized.push(false);
+  }
+  return normalized;
+}
+
+function normalizeTimers(list: number[], timers: (number | null)[] | null | undefined) {
+  if (!timers || timers.length === 0) {
+    return list.map(() => null);
+  }
+  const normalized = timers.slice(0, list.length);
+  while (normalized.length < list.length) {
+    normalized.push(null);
+  }
+  return normalized;
+}
+
+function getPackCourses() {
+  if (!hasPackForGameSource(GAME_SOURCES.MB2WS)) {
+    return null;
+  }
+  return getPackCourseData();
+}
+
+function flattenStoryOrder(order: number[][]) {
+  return order.reduce<number[]>((acc, list) => acc.concat(list), []);
+}
+
+function getStoryIndex(order: number[][], worldIndex: number, stageIndex: number) {
+  if (order.length === 0) {
+    return 0;
+  }
+  const safeWorld = clampIndex(worldIndex, order.length);
+  const worldStages = order[safeWorld] ?? [];
+  const safeStage = clampIndex(stageIndex, worldStages.length);
+  let index = safeStage;
+  for (let i = 0; i < safeWorld; i += 1) {
+    index += order[i]?.length ?? 0;
+  }
+  return index;
+}
 
 function clampIndex(value: number, max: number) {
   if (max <= 0) {
@@ -277,19 +336,25 @@ export class Mb2wsCourse {
   constructor(config: Mb2wsCourseConfig) {
     this.mode = config.mode;
     this.difficultyLabel = null;
+    const packCourses = getPackCourses();
     if (config.mode === 'challenge') {
-      const list = MB2WS_CHALLENGE_ORDER[config.difficulty] ?? [];
-      const times = MB2WS_CHALLENGE_TIMERS[config.difficulty] ?? [];
+      const packOrder = packCourses?.challenge?.order?.[config.difficulty];
+      const list = packOrder ?? MB2WS_CHALLENGE_ORDER[config.difficulty] ?? [];
+      const packTimers = packCourses?.challenge?.timers?.[config.difficulty];
+      const times = packTimers ?? MB2WS_CHALLENGE_TIMERS[config.difficulty] ?? [];
       this.stageList = list.slice();
-      this.timeList = times.slice();
-      this.bonusFlags = (MB2WS_CHALLENGE_BONUS[config.difficulty] ?? []).slice();
+      this.timeList = normalizeTimers(this.stageList, times);
+      const packBonus = packCourses?.challenge?.bonus?.[config.difficulty];
+      const defaultBonus = MB2WS_CHALLENGE_BONUS[config.difficulty as keyof typeof MB2WS_CHALLENGE_ORDER];
+      this.bonusFlags = normalizeBonusFlags(this.stageList, packBonus ?? defaultBonus);
       this.currentIndex = clampIndex(config.stageIndex, this.stageList.length);
       this.difficultyLabel = titleCaseDifficulty(config.difficulty);
     } else {
-      this.stageList = STORY_FLAT_ORDER.slice();
+      const storyOrder = packCourses?.story ?? MB2WS_STORY_ORDER;
+      this.stageList = flattenStoryOrder(storyOrder);
       this.timeList = [];
       this.bonusFlags = [];
-      const storyIndex = config.worldIndex * 10 + config.stageIndex;
+      const storyIndex = getStoryIndex(storyOrder, config.worldIndex, config.stageIndex);
       this.currentIndex = clampIndex(storyIndex, this.stageList.length);
     }
 
@@ -297,6 +362,12 @@ export class Mb2wsCourse {
   }
 
   getTimeLimitFrames() {
+    if (hasPackForGameSource(GAME_SOURCES.MB2WS)) {
+      const override = getPackStageTimeOverride(this.currentStageId);
+      if (override !== null) {
+        return override;
+      }
+    }
     if (this.mode === 'challenge') {
       const override = this.timeList[this.currentIndex];
       if (override !== null && override !== undefined) {

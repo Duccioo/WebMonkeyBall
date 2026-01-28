@@ -68,6 +68,7 @@ const SPEED_MPH_SCALE = 134.21985;
 const SPEED_BAR_MAX_MPH = 70;
 const fallOutStack = new MatrixStack();
 const fallOutLocal = { x: 0, y: 0, z: 0 };
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -323,6 +324,13 @@ export class Game {
   public interpolatedAnimGroupTransforms: Float32Array[] | null;
   public effectDebugLastLogTime: number;
   public loadingStage: boolean;
+  public simPerf: {
+    enabled: boolean;
+    logEvery: number;
+    tickCount: number;
+    tickMs: number;
+    lastTickMs: number;
+  };
 
   constructor({
     hud,
@@ -405,6 +413,13 @@ export class Game {
     this.interpolatedAnimGroupTransforms = null;
     this.effectDebugLastLogTime = 0;
     this.loadingStage = false;
+    this.simPerf = {
+      enabled: true,
+      logEvery: 120,
+      tickCount: 0,
+      tickMs: 0,
+      lastTickMs: 0,
+    };
   }
 
   setGameSource(source: GameSource) {
@@ -1726,6 +1741,8 @@ export class Game {
       }
       this.stageRuntime.goalHoldOpen = this.goalTimerFrames > 0;
       while (!this.pendingAdvance && this.accumulator >= this.fixedStep) {
+        const tickStart = this.simPerf.enabled ? nowMs() : 0;
+        try {
         const ringoutActive = this.ringoutTimerFrames > 0;
         const timeoverActive = this.timeoverTimerFrames > 0;
         const inputEnabled = this.introTimerFrames <= 0
@@ -1887,6 +1904,25 @@ export class Game {
           this.captureCameraPose(cameraPoses.curr);
         }
         this.accumulator -= this.fixedStep;
+        } finally {
+          if (this.simPerf.enabled) {
+            const tickMs = nowMs() - tickStart;
+            this.simPerf.lastTickMs = tickMs;
+            this.simPerf.tickMs += tickMs;
+            this.simPerf.tickCount += 1;
+          }
+        }
+      }
+      if (this.simPerf.enabled && this.simPerf.tickCount >= this.simPerf.logEvery) {
+        const avgMs = this.simPerf.tickMs / Math.max(1, this.simPerf.tickCount);
+        console.log(
+          "[perf] sim-tick avg=%sms last=%sms over=%d",
+          avgMs.toFixed(3),
+          this.simPerf.lastTickMs.toFixed(3),
+          this.simPerf.tickCount,
+        );
+        this.simPerf.tickCount = 0;
+        this.simPerf.tickMs = 0;
       }
     }
 

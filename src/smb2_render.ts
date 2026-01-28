@@ -1,4 +1,5 @@
 import { vec2, vec3 } from 'gl-matrix';
+import { GAME_SOURCES, type GameSource } from './constants.js';
 import {
   AnimType,
   BananaType,
@@ -10,6 +11,8 @@ import {
   type StageModelInstance,
 } from './noclip/SuperMonkeyBall/Stagedef.js';
 import { BgInfos, type StageInfo } from './noclip/SuperMonkeyBall/StageInfo.js';
+import { colorNewFromRGBA } from './noclip/Color.js';
+import { getPackStageEnv, hasPackForGameSource } from './pack.js';
 
 const SMB2_STAGE_THEME_IDS = [
   0, // 0
@@ -539,6 +542,36 @@ const SMB2_BG_INFO_BY_NAME = {
   'bg_ending': BgInfos.Ending,
 } as const;
 
+function applyPackBgInfo(stageId: number, gameSource: GameSource, baseInfo: BgInfos[keyof typeof BgInfos], fileName: string) {
+  if (!hasPackForGameSource(gameSource)) {
+    return { ...baseInfo, fileName };
+  }
+  const packEnv = getPackStageEnv(stageId);
+  const packBg = packEnv?.bgInfo;
+  if (!packBg) {
+    return { ...baseInfo, fileName };
+  }
+  const packFileName = packBg.fileName || fileName;
+  const mapped =
+    (packFileName ? SMB2_BG_INFO_BY_NAME[packFileName as keyof typeof SMB2_BG_INFO_BY_NAME] : null) ??
+    baseInfo;
+  return {
+    ...mapped,
+    fileName: packFileName,
+    clearColor: packBg.clearColor
+      ? colorNewFromRGBA(packBg.clearColor[0], packBg.clearColor[1], packBg.clearColor[2], packBg.clearColor[3])
+      : mapped.clearColor,
+    ambientColor: packBg.ambientColor
+      ? colorNewFromRGBA(packBg.ambientColor[0], packBg.ambientColor[1], packBg.ambientColor[2], 1)
+      : mapped.ambientColor,
+    infLightColor: packBg.infLightColor
+      ? colorNewFromRGBA(packBg.infLightColor[0], packBg.infLightColor[1], packBg.infLightColor[2], 1)
+      : mapped.infLightColor,
+    infLightRotX: packBg.infLightRotX ?? mapped.infLightRotX,
+    infLightRotY: packBg.infLightRotY ?? mapped.infLightRotY,
+  };
+}
+
 function toVec3(input: { x: number; y: number; z: number }) {
   return vec3.fromValues(input.x, input.y, input.z);
 }
@@ -644,30 +677,24 @@ function convertStageModelInstances(list: any[]): StageModelInstance[] {
 export function getSmb2StageInfo(stageId: number): StageInfo {
   const themeId = SMB2_STAGE_THEME_IDS[stageId] ?? 0;
   const fileName = SMB2_THEME_BG_NAMES[themeId] ?? '';
-  const bgInfo =
+  const baseInfo =
     (fileName ? SMB2_BG_INFO_BY_NAME[fileName as keyof typeof SMB2_BG_INFO_BY_NAME] : null) ??
     BgInfos.Jungle;
   return {
     id: stageId as any,
-    bgInfo: {
-      ...bgInfo,
-      fileName,
-    },
+    bgInfo: applyPackBgInfo(stageId, GAME_SOURCES.SMB2, baseInfo, fileName),
   };
 }
 
 export function getMb2wsStageInfo(stageId: number): StageInfo {
   const themeId = MB2WS_STAGE_THEME_IDS[stageId] ?? 0;
   const fileName = SMB2_THEME_BG_NAMES[themeId] ?? '';
-  const bgInfo =
+  const baseInfo =
     (fileName ? SMB2_BG_INFO_BY_NAME[fileName as keyof typeof SMB2_BG_INFO_BY_NAME] : null) ??
     BgInfos.Jungle;
   return {
     id: stageId as any,
-    bgInfo: {
-      ...bgInfo,
-      fileName,
-    },
+    bgInfo: applyPackBgInfo(stageId, GAME_SOURCES.MB2WS, baseInfo, fileName),
   };
 }
 

@@ -34,7 +34,17 @@
           <span>— Renderer</span>
         </div>
         <div>
-          camthesaxman <span>— Decompilation</span>
+          camthesaxman <span>— SMB1 Decompilation</span>
+        </div>
+        <div class="credits-multiline">
+          <div class="credits-title">SMB2 Decompilation</div>
+          <div class="credits-sublist">
+            <div>ComplexPlane</div>
+            <div>CraftedCart</div>
+            <div>EELI</div>
+            <div>Eucalyptus</div>
+            <div>The BombSquad</div>
+          </div>
         </div>
         <div>
           Amusement Vision <span>— Original game</span>
@@ -56,6 +66,16 @@
           <option value="mb2ws">Super Monkey Ball 2 (MB2WS)</option>
         </select>
       </label>
+      <div class="pack-controls">
+        <button id="pack-load" class="ghost compact" type="button">Load Pack</button>
+        <div id="pack-picker" class="pack-picker hidden">
+          <button id="pack-load-zip" class="ghost compact" type="button">Zip File</button>
+          <button id="pack-load-folder" class="ghost compact" type="button">Folder</button>
+        </div>
+        <div id="pack-status" class="pack-status">No pack loaded</div>
+      </div>
+      <input id="pack-file" class="hidden" type="file" accept=".zip" />
+      <input id="pack-folder" class="hidden" type="file" webkitdirectory />
 
       <label id="control-mode-field" class="field hidden">
         <span>Control Mode</span>
@@ -263,18 +283,34 @@
 
         syncGyroUi();
 
+        const requestGyroPermission = async () => {
+          const requests = [];
+          const orientationPermission = window.DeviceOrientationEvent?.requestPermission;
+          if (typeof orientationPermission === 'function') {
+            requests.push(orientationPermission.call(window.DeviceOrientationEvent));
+          }
+          const motionPermission = window.DeviceMotionEvent?.requestPermission;
+          if (typeof motionPermission === 'function') {
+            requests.push(motionPermission.call(window.DeviceMotionEvent));
+          }
+          if (requests.length === 0) {
+            return 'granted';
+          }
+          try {
+            const results = await Promise.all(requests);
+            return results.every((result) => result === 'granted') ? 'granted' : 'denied';
+          } catch {
+            return 'denied';
+          }
+        };
+
         select.addEventListener('change', async () => {
           let next = select.value;
 
           // iOS: gyro requires a user-gesture permission prompt.
-          if (next === 'gyro' && typeof window.DeviceOrientationEvent?.requestPermission === 'function') {
-            try {
-              const result = await window.DeviceOrientationEvent.requestPermission();
-              if (result !== 'granted') {
-                next = hasTouch ? 'touch' : 'gyro';
-                select.value = next;
-              }
-            } catch {
+          if (next === 'gyro') {
+            const result = await requestGyroPermission();
+            if (result !== 'granted') {
               next = hasTouch ? 'touch' : 'gyro';
               select.value = next;
             }

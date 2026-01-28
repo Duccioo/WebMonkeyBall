@@ -426,6 +426,28 @@ select option {
   gap: 12px;
 }
 
+.pack-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.pack-controls .ghost {
+  flex: 0 0 auto;
+}
+
+.pack-picker {
+  display: flex;
+  gap: 8px;
+}
+
+.pack-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 button {
   flex: 1;
   padding: 12px 16px;
@@ -545,6 +567,23 @@ button:disabled {
 .credits-panel span {
   color: var(--muted);
   margin-left: 4px;
+}
+
+.credits-panel .credits-multiline {
+  display: grid;
+  gap: 4px;
+}
+
+.credits-panel .credits-title {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.2px;
+}
+
+.credits-panel .credits-sublist {
+  display: grid;
+  gap: 2px;
+  margin-left: 12px;
 }
 
 .mobile-menu-button {

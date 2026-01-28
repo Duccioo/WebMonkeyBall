@@ -33,6 +33,18 @@ import { StageId, STAGE_INFO_MAP } from './noclip/SuperMonkeyBall/StageInfo.js';
 import type { StageData } from './noclip/SuperMonkeyBall/World.js';
 import { convertSmb2StageDef, getMb2wsStageInfo, getSmb2StageInfo } from './smb2_render.js';
 import { HudRenderer } from './hud.js';
+import {
+  fetchPackSlice,
+  getActivePack,
+  getPackCourseData,
+  getPackStageBasePath,
+  hasPackForGameSource,
+  loadPackFromFileList,
+  loadPackFromUrl,
+  loadPackFromZipFile,
+  setActivePack,
+} from './pack.js';
+import type { LoadedPack } from './pack.js';
 
 function clamp(value: number, min: number, max: number) {
   if (value < min) {
@@ -55,13 +67,63 @@ const DEFAULT_PAD_GATE = [
   [59, -59],
 ];
 
-const STAGE_BASE_PATH = STAGE_BASE_PATHS[GAME_SOURCES.SMB1];
+function getStageBasePath(gameSource: GameSource): string {
+  const selection = gameSourceSelect?.value as GameSourceSelection | undefined;
+  const usePack = selection === 'pack' && hasPackForGameSource(gameSource);
+  if (usePack) {
+    return getPackStageBasePath(gameSource)
+      ?? STAGE_BASE_PATHS[gameSource]
+      ?? STAGE_BASE_PATHS[GAME_SOURCES.SMB1];
+  }
+  return STAGE_BASE_PATHS[gameSource] ?? STAGE_BASE_PATHS[GAME_SOURCES.SMB1];
+}
 const NAOMI_STAGE_IDS = new Set([
   10, 19, 20, 30, 49, 50, 60, 70, 80, 92, 96, 97, 98, 99, 100, 114, 115, 116, 117, 118, 119, 120,
 ]);
 
 function isNaomiStage(stageId: number): boolean {
   return NAOMI_STAGE_IDS.has(stageId);
+}
+
+type GameSourceSelection = GameSource | 'pack';
+let packOption: HTMLOptionElement | null = null;
+
+function resolveSelectedGameSource() {
+  const selection = (gameSourceSelect?.value as GameSourceSelection) ?? GAME_SOURCES.SMB1;
+  if (selection === 'pack') {
+    const pack = getActivePack();
+    if (pack) {
+      return { selection, gameSource: pack.manifest.gameSource };
+    }
+    return { selection, gameSource: GAME_SOURCES.SMB1 };
+  }
+  return { selection, gameSource: selection as GameSource };
+}
+
+function updatePackUi() {
+  const pack = getActivePack();
+  if (packStatus) {
+    packStatus.textContent = pack
+      ? `Loaded: ${pack.manifest.name} (${pack.manifest.gameSource.toUpperCase()})`
+      : 'No pack loaded';
+  }
+  if (!gameSourceSelect) {
+    return;
+  }
+  if (pack) {
+    if (!packOption) {
+      packOption = document.createElement('option');
+      packOption.value = 'pack';
+    }
+    packOption.textContent = `Pack: ${pack.manifest.name}`;
+    if (!gameSourceSelect.querySelector('option[value="pack"]')) {
+      gameSourceSelect.appendChild(packOption);
+    }
+    gameSourceSelect.value = 'pack';
+  } else if (packOption && gameSourceSelect.contains(packOption)) {
+    gameSourceSelect.removeChild(packOption);
+    packOption = null;
+  }
 }
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -102,6 +164,13 @@ const resumeButton = document.getElementById('resume') as HTMLButtonElement;
 const difficultySelect = document.getElementById('difficulty') as HTMLSelectElement;
 const smb1StageSelect = document.getElementById('smb1-stage') as HTMLSelectElement;
 const gameSourceSelect = document.getElementById('game-source') as HTMLSelectElement;
+const packLoadButton = document.getElementById('pack-load') as HTMLButtonElement | null;
+const packPicker = document.getElementById('pack-picker') as HTMLElement | null;
+const packLoadZipButton = document.getElementById('pack-load-zip') as HTMLButtonElement | null;
+const packLoadFolderButton = document.getElementById('pack-load-folder') as HTMLButtonElement | null;
+const packStatus = document.getElementById('pack-status') as HTMLElement | null;
+const packFileInput = document.getElementById('pack-file') as HTMLInputElement | null;
+const packFolderInput = document.getElementById('pack-folder') as HTMLInputElement | null;
 const smb1Fields = document.getElementById('smb1-fields') as HTMLElement;
 const smb2Fields = document.getElementById('smb2-fields') as HTMLElement;
 const smb2ModeSelect = document.getElementById('smb2-mode') as HTMLSelectElement;
@@ -193,12 +262,37 @@ function resizeCanvasToDisplaySize(canvasElem: HTMLCanvasElement) {
 }
 
 async function fetchSlice(path: string): Promise<ArrayBufferSlice> {
-  const response = await fetch(path);
-  if (!response.ok) {
-    throw new Error(`Failed to load ${path}: ${response.status} ${response.statusText}`);
+  return fetchPackSlice(path);
+}
+
+async function initPackFromQuery() {
+  const packParam = new URLSearchParams(window.location.search).get('pack');
+  if (!packParam) {
+    return;
   }
-  const buffer = await response.arrayBuffer();
-  return new ArrayBufferSlice(buffer);
+  try {
+    const pack = await loadPackFromUrl(packParam);
+    setActivePack(pack);
+    updatePackUi();
+    updateSmb2ChallengeStages();
+    updateSmb2StoryOptions();
+    updateSmb1Stages();
+    updateGameSourceFields();
+  } catch (error) {
+    console.error(error);
+    if (hudStatus) {
+      hudStatus.textContent = 'Failed to load pack.';
+    }
+  }
+}
+
+async function applyLoadedPack(pack: LoadedPack) {
+  setActivePack(pack);
+  updatePackUi();
+  updateSmb2ChallengeStages();
+  updateSmb2StoryOptions();
+  updateSmb1Stages();
+  updateGameSourceFields();
 }
 
 async function loadRenderStage(stageId: number): Promise<StageData> {
@@ -208,21 +302,22 @@ async function loadRenderStage(stageId: number): Promise<StageData> {
     throw new Error(`Missing StageInfo for stage ${stageId}`);
   }
 
-  const stagedefPath = `${STAGE_BASE_PATH}/st${stageIdStr}/STAGE${stageIdStr}.lz`;
-  const stageGmaPath = `${STAGE_BASE_PATH}/st${stageIdStr}/st${stageIdStr}.gma`;
-  const stageTplPath = `${STAGE_BASE_PATH}/st${stageIdStr}/st${stageIdStr}.tpl`;
+  const stageBasePath = getStageBasePath(GAME_SOURCES.SMB1);
+  const stagedefPath = `${stageBasePath}/st${stageIdStr}/STAGE${stageIdStr}.lz`;
+  const stageGmaPath = `${stageBasePath}/st${stageIdStr}/st${stageIdStr}.gma`;
+  const stageTplPath = `${stageBasePath}/st${stageIdStr}/st${stageIdStr}.tpl`;
 
-  const commonGmaPath = `${STAGE_BASE_PATH}/init/common.gma`;
-  const commonTplPath = `${STAGE_BASE_PATH}/init/common.tpl`;
-  const commonNlPath = `${STAGE_BASE_PATH}/init/common_p.lz`;
-  const commonNlTplPath = `${STAGE_BASE_PATH}/init/common.lz`;
+  const commonGmaPath = `${stageBasePath}/init/common.gma`;
+  const commonTplPath = `${stageBasePath}/init/common.tpl`;
+  const commonNlPath = `${stageBasePath}/init/common_p.lz`;
+  const commonNlTplPath = `${stageBasePath}/init/common.lz`;
 
   const bgName = stageInfo.bgInfo.fileName;
-  const bgGmaPath = `${STAGE_BASE_PATH}/bg/${bgName}.gma`;
-  const bgTplPath = `${STAGE_BASE_PATH}/bg/${bgName}.tpl`;
+  const bgGmaPath = `${stageBasePath}/bg/${bgName}.gma`;
+  const bgTplPath = `${stageBasePath}/bg/${bgName}.tpl`;
   const isNaomi = isNaomiStage(stageId);
-  const stageNlObjPath = isNaomi ? `${STAGE_BASE_PATH}/st${stageIdStr}/st${stageIdStr}_p.lz` : null;
-  const stageNlTplPath = isNaomi ? `${STAGE_BASE_PATH}/st${stageIdStr}/st${stageIdStr}.lz` : null;
+  const stageNlObjPath = isNaomi ? `${stageBasePath}/st${stageIdStr}/st${stageIdStr}_p.lz` : null;
+  const stageNlTplPath = isNaomi ? `${stageBasePath}/st${stageIdStr}/st${stageIdStr}.lz` : null;
 
   const [
     stagedefBuf,
@@ -294,7 +389,7 @@ async function loadRenderStageSmb2(stageId: number, stage: any, gameSource: Game
     gameSource === GAME_SOURCES.MB2WS ? getMb2wsStageInfo(stageId) : getSmb2StageInfo(stageId);
   const stagedef = convertSmb2StageDef(stage);
 
-  const stageBasePath = STAGE_BASE_PATHS[gameSource] ?? STAGE_BASE_PATHS[GAME_SOURCES.SMB2];
+  const stageBasePath = getStageBasePath(gameSource) ?? STAGE_BASE_PATHS[GAME_SOURCES.SMB2];
   const stageGmaPath = `${stageBasePath}/st${stageIdStr}/st${stageIdStr}.gma`;
   const stageTplPath = `${stageBasePath}/st${stageIdStr}/st${stageIdStr}.tpl`;
 
@@ -566,11 +661,33 @@ function setSelectOptions(select: HTMLSelectElement, values: { value: string; la
   }
 }
 
+function getPackChallengeOrder(gameSource: GameSource) {
+  if (!hasPackForGameSource(gameSource)) {
+    return null;
+  }
+  return getPackCourseData()?.challenge?.order ?? null;
+}
+
+function getPackStoryOrder(gameSource: GameSource) {
+  if (!hasPackForGameSource(gameSource)) {
+    return null;
+  }
+  return getPackCourseData()?.story ?? null;
+}
+
 function getSmb2LikeChallengeOrder(gameSource: GameSource) {
+  const packOrder = getPackChallengeOrder(gameSource);
+  if (packOrder) {
+    return packOrder;
+  }
   return gameSource === GAME_SOURCES.MB2WS ? MB2WS_CHALLENGE_ORDER : SMB2_CHALLENGE_ORDER;
 }
 
 function getSmb2LikeStoryOrder(gameSource: GameSource) {
+  const packOrder = getPackStoryOrder(gameSource);
+  if (packOrder) {
+    return packOrder;
+  }
   return gameSource === GAME_SOURCES.MB2WS ? MB2WS_STORY_ORDER : SMB2_STORY_ORDER;
 }
 
@@ -578,9 +695,19 @@ function updateSmb2ChallengeStages() {
   if (!smb2ChallengeSelect || !smb2ChallengeStageSelect) {
     return;
   }
-  const gameSource = (gameSourceSelect?.value as GameSource) ?? GAME_SOURCES.SMB1;
+  const { gameSource } = resolveSelectedGameSource();
+  const order = getSmb2LikeChallengeOrder(gameSource);
+  if (hasPackForGameSource(gameSource) && order) {
+    const keys = Object.keys(order);
+    if (keys.length > 0) {
+      const current = smb2ChallengeSelect.value;
+      const options = keys.map((key) => ({ value: key, label: key }));
+      setSelectOptions(smb2ChallengeSelect, options);
+      smb2ChallengeSelect.value = keys.includes(current) ? current : keys[0];
+    }
+  }
   const difficulty = smb2ChallengeSelect.value as Smb2ChallengeDifficulty | Mb2wsChallengeDifficulty;
-  const stages = getSmb2LikeChallengeOrder(gameSource)[difficulty] ?? [];
+  const stages = order[difficulty] ?? [];
   const options = stages.map((_, index) => ({
     value: String(index + 1),
     label: `Stage ${index + 1}`,
@@ -604,18 +731,28 @@ function updateSmb2StoryOptions() {
   if (!smb2StoryWorldSelect || !smb2StoryStageSelect) {
     return;
   }
-  const gameSource = (gameSourceSelect?.value as GameSource) ?? GAME_SOURCES.SMB1;
+  const { gameSource } = resolveSelectedGameSource();
   const storyOrder = getSmb2LikeStoryOrder(gameSource);
+  if (storyOrder.length === 0) {
+    setSelectOptions(smb2StoryWorldSelect, []);
+    setSelectOptions(smb2StoryStageSelect, []);
+    return;
+  }
   const worldOptions = storyOrder.map((_, index) => ({
     value: String(index + 1),
     label: `World ${index + 1}`,
   }));
-  const stageOptions = storyOrder[0].map((_, index) => ({
+  setSelectOptions(smb2StoryWorldSelect, worldOptions);
+  const currentWorld = Math.max(0, Math.min(storyOrder.length - 1, Number(smb2StoryWorldSelect.value ?? 1) - 1));
+  smb2StoryWorldSelect.value = String(currentWorld + 1);
+  const stageList = storyOrder[currentWorld] ?? [];
+  const stageOptions = stageList.map((_, index) => ({
     value: String(index + 1),
     label: `Stage ${index + 1}`,
   }));
-  setSelectOptions(smb2StoryWorldSelect, worldOptions);
   setSelectOptions(smb2StoryStageSelect, stageOptions);
+  const currentStage = Math.max(0, Math.min(stageList.length - 1, Number(smb2StoryStageSelect.value ?? 1) - 1));
+  smb2StoryStageSelect.value = String(currentStage + 1);
 }
 
 function updateSmb2ModeFields() {
@@ -628,7 +765,7 @@ function updateSmb2ModeFields() {
 }
 
 function updateGameSourceFields() {
-  const gameSource = (gameSourceSelect?.value as GameSource) ?? GAME_SOURCES.SMB1;
+  const { gameSource } = resolveSelectedGameSource();
   const isSmb2Like = gameSource !== GAME_SOURCES.SMB1;
   smb1Fields?.classList.toggle('hidden', isSmb2Like);
   smb2Fields?.classList.toggle('hidden', !isSmb2Like);
@@ -677,6 +814,7 @@ async function startStage(
   }
 
   game.setGameSource(activeGameSource);
+  game.stageBasePath = getStageBasePath(activeGameSource);
   currentSmb2LikeMode =
     activeGameSource !== GAME_SOURCES.SMB1 && hasSmb2LikeMode(difficulty) ? difficulty.mode : null;
   void audio.resume();
@@ -1094,10 +1232,13 @@ function updateGyroHelper() {
 setOverlayVisible(true);
 startButton.disabled = false;
 
-updateSmb2ChallengeStages();
-updateSmb2StoryOptions();
-updateSmb1Stages();
-updateGameSourceFields();
+updatePackUi();
+void initPackFromQuery().finally(() => {
+  updateSmb2ChallengeStages();
+  updateSmb2StoryOptions();
+  updateSmb1Stages();
+  updateGameSourceFields();
+});
 
 bindVolumeControl(musicVolumeInput, musicVolumeValue, (value) => {
   audio.setMusicVolume(value);
@@ -1148,12 +1289,74 @@ updateFalloffCurve(game.input?.inputFalloff ?? 1);
 syncTouchPreviewVisibility();
 updateFullscreenButtonVisibility();
 
+function setPackPickerOpen(open: boolean) {
+  if (!packPicker) {
+    return;
+  }
+  packPicker.classList.toggle('hidden', !open);
+}
+
+packLoadButton?.addEventListener('click', () => {
+  if (!packPicker) {
+    return;
+  }
+  setPackPickerOpen(packPicker.classList.contains('hidden'));
+});
+
+packLoadZipButton?.addEventListener('click', () => {
+  setPackPickerOpen(false);
+  packFileInput?.click();
+});
+
+packLoadFolderButton?.addEventListener('click', () => {
+  setPackPickerOpen(false);
+  packFolderInput?.click();
+});
+
+packFileInput?.addEventListener('change', async () => {
+  const file = packFileInput.files?.[0];
+  packFileInput.value = '';
+  if (!file) {
+    return;
+  }
+  try {
+    const pack = await loadPackFromZipFile(file);
+    await applyLoadedPack(pack);
+  } catch (error) {
+    console.error(error);
+    if (hudStatus) {
+      hudStatus.textContent = 'Failed to load pack.';
+    }
+  }
+});
+
+packFolderInput?.addEventListener('change', async () => {
+  const files = packFolderInput.files;
+  packFolderInput.value = '';
+  if (!files || files.length === 0) {
+    return;
+  }
+  try {
+    const pack = await loadPackFromFileList(files);
+    await applyLoadedPack(pack);
+  } catch (error) {
+    console.error(error);
+    if (hudStatus) {
+      hudStatus.textContent = 'Failed to load pack.';
+    }
+  }
+});
+
 smb2ModeSelect?.addEventListener('change', () => {
   updateSmb2ModeFields();
 });
 
 smb2ChallengeSelect?.addEventListener('change', () => {
   updateSmb2ChallengeStages();
+});
+
+smb2StoryWorldSelect?.addEventListener('change', () => {
+  updateSmb2StoryOptions();
 });
 
 difficultySelect?.addEventListener('change', () => {
@@ -1225,7 +1428,8 @@ if (interpolationToggle) {
 }
 
 startButton.addEventListener('click', () => {
-  activeGameSource = (gameSourceSelect?.value as GameSource) || GAME_SOURCES.SMB1;
+  const resolved = resolveSelectedGameSource();
+  activeGameSource = resolved.gameSource;
   const difficulty = activeGameSource === GAME_SOURCES.SMB2
     ? buildSmb2CourseConfig()
     : activeGameSource === GAME_SOURCES.MB2WS
