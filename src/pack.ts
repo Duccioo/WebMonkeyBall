@@ -75,6 +75,7 @@ export type LoadedPack = {
 };
 
 let activePack: LoadedPack | null = null;
+let packEnabled = true;
 
 function normalizePackPath(path: string): string {
   return path.replace(/^\.\//, '').replace(/^\//, '');
@@ -99,27 +100,44 @@ export function setActivePack(pack: LoadedPack | null) {
   activePack = pack;
 }
 
+export function setPackEnabled(enabled: boolean) {
+  packEnabled = enabled;
+}
+
+export function isPackEnabled() {
+  return packEnabled;
+}
+
 export function getActivePack() {
   return activePack;
 }
 
 export function getPackStageEnv(stageId: number): PackStageEnv | null {
-  if (!activePack?.manifest.stageEnv) {
+  if (!packEnabled || !activePack?.manifest.stageEnv) {
     return null;
   }
   return activePack.manifest.stageEnv[String(stageId)] ?? null;
 }
 
 export function getPackCourseData(): PackCourseData | null {
+  if (!packEnabled) {
+    return null;
+  }
   return activePack?.manifest.courses ?? null;
 }
 
 export function getPackStageName(stageId: number): string | null {
+  if (!packEnabled) {
+    return null;
+  }
   const name = activePack?.manifest.content?.stageNames?.[String(stageId)];
   return name ?? null;
 }
 
 export function getPackStageTimeOverride(stageId: number): number | null {
+  if (!packEnabled) {
+    return null;
+  }
   const override = activePack?.manifest.content?.stageTimeOverrides?.[String(stageId)];
   if (override === undefined) {
     return null;
@@ -131,6 +149,9 @@ export function getPackStageBasePath(gameSource: GameSource): string | null {
   if (!activePack) {
     return null;
   }
+  if (!packEnabled) {
+    return null;
+  }
   if (activePack.manifest.gameSource !== gameSource) {
     return null;
   }
@@ -138,7 +159,7 @@ export function getPackStageBasePath(gameSource: GameSource): string | null {
 }
 
 export function hasPackForGameSource(gameSource: GameSource): boolean {
-  return activePack?.manifest.gameSource === gameSource;
+  return !!packEnabled && activePack?.manifest.gameSource === gameSource;
 }
 
 export async function fetchPackSlice(path: string): Promise<ArrayBufferSlice> {

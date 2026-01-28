@@ -43,6 +43,7 @@ import {
   loadPackFromUrl,
   loadPackFromZipFile,
   setActivePack,
+  setPackEnabled,
 } from './pack.js';
 import type { LoadedPack } from './pack.js';
 
@@ -69,7 +70,7 @@ const DEFAULT_PAD_GATE = [
 
 function getStageBasePath(gameSource: GameSource): string {
   const selection = gameSourceSelect?.value as GameSourceSelection | undefined;
-  const usePack = selection === 'pack' && hasPackForGameSource(gameSource);
+  const usePack = !!selection && selection.startsWith('pack:') && hasPackForGameSource(gameSource);
   if (usePack) {
     return getPackStageBasePath(gameSource)
       ?? STAGE_BASE_PATHS[gameSource]
@@ -85,12 +86,29 @@ function isNaomiStage(stageId: number): boolean {
   return NAOMI_STAGE_IDS.has(stageId);
 }
 
-type GameSourceSelection = GameSource | 'pack';
-let packOption: HTMLOptionElement | null = null;
+type GameSourceSelection = GameSource | `pack:${string}`;
+const loadedPacks = new Map<string, LoadedPack>();
+let activePackKey: string | null = null;
+
+function normalizePackKey(base: string) {
+  return base.replace(/\s+/g, '-').toLowerCase();
+}
+
+function createPackKey(pack: LoadedPack) {
+  const base = normalizePackKey(pack.manifest.id || pack.manifest.name || 'pack');
+  if (!loadedPacks.has(base)) {
+    return base;
+  }
+  let counter = 2;
+  while (loadedPacks.has(`${base}-${counter}`)) {
+    counter += 1;
+  }
+  return `${base}-${counter}`;
+}
 
 function resolveSelectedGameSource() {
   const selection = (gameSourceSelect?.value as GameSourceSelection) ?? GAME_SOURCES.SMB1;
-  if (selection === 'pack') {
+  if (selection.startsWith('pack:')) {
     const pack = getActivePack();
     if (pack) {
       return { selection, gameSource: pack.manifest.gameSource };
@@ -103,26 +121,50 @@ function resolveSelectedGameSource() {
 function updatePackUi() {
   const pack = getActivePack();
   if (packStatus) {
-    packStatus.textContent = pack
-      ? `Loaded: ${pack.manifest.name} (${pack.manifest.gameSource.toUpperCase()})`
-      : 'No pack loaded';
+    if (!pack) {
+      if (loadedPacks.size > 0) {
+        packStatus.textContent = `Loaded packs: ${loadedPacks.size}`;
+      } else {
+        packStatus.textContent = 'No pack loaded';
+      }
+    } else if (loadedPacks.size <= 1) {
+      packStatus.textContent = `Loaded: ${pack.manifest.name} (${pack.manifest.gameSource.toUpperCase()})`;
+    } else {
+      packStatus.textContent = `Loaded packs: ${loadedPacks.size} (active: ${pack.manifest.name})`;
+    }
   }
   if (!gameSourceSelect) {
     return;
   }
-  if (pack) {
-    if (!packOption) {
-      packOption = document.createElement('option');
-      packOption.value = 'pack';
-    }
-    packOption.textContent = `Pack: ${pack.manifest.name}`;
-    if (!gameSourceSelect.querySelector('option[value="pack"]')) {
-      gameSourceSelect.appendChild(packOption);
-    }
-    gameSourceSelect.value = 'pack';
-  } else if (packOption && gameSourceSelect.contains(packOption)) {
-    gameSourceSelect.removeChild(packOption);
-    packOption = null;
+  for (const option of Array.from(gameSourceSelect.querySelectorAll('option[data-pack="true"]'))) {
+    option.remove();
+  }
+  for (const [key, entry] of loadedPacks.entries()) {
+    const option = document.createElement('option');
+    option.value = `pack:${key}`;
+    option.textContent = `Pack: ${entry.manifest.name}`;
+    option.dataset.pack = 'true';
+    gameSourceSelect.appendChild(option);
+  }
+  if (activePackKey && gameSourceSelect.querySelector(`option[value="pack:${activePackKey}"]`)) {
+    gameSourceSelect.value = `pack:${activePackKey}`;
+  }
+}
+
+function syncPackEnabled() {
+  if (!gameSourceSelect) {
+    return;
+  }
+  const selection = gameSourceSelect.value;
+  if (selection.startsWith('pack:')) {
+    const key = selection.slice('pack:'.length);
+    const pack = loadedPacks.get(key) ?? null;
+    activePackKey = pack ? key : null;
+    setActivePack(pack);
+    setPackEnabled(!!pack);
+  } else {
+    activePackKey = null;
+    setPackEnabled(false);
   }
 }
 
@@ -187,6 +229,11 @@ const sfxVolumeValue = document.getElementById('sfx-volume-value') as HTMLOutput
 const announcerVolumeValue = document.getElementById('announcer-volume-value') as HTMLOutputElement;
 
 const hudStatus = document.getElementById('hud-status') as HTMLElement | null;
+
+const defaultChallengeOptions = Array.from(smb2ChallengeSelect?.options ?? []).map((option) => ({
+  value: option.value,
+  label: option.textContent ?? option.value,
+}));
 
 const hasTouch = ('ontouchstart' in window) || ((navigator.maxTouchPoints ?? 0) > 0);
 
@@ -272,12 +319,7 @@ async function initPackFromQuery() {
   }
   try {
     const pack = await loadPackFromUrl(packParam);
-    setActivePack(pack);
-    updatePackUi();
-    updateSmb2ChallengeStages();
-    updateSmb2StoryOptions();
-    updateSmb1Stages();
-    updateGameSourceFields();
+    await applyLoadedPack(pack);
   } catch (error) {
     console.error(error);
     if (hudStatus) {
@@ -287,7 +329,11 @@ async function initPackFromQuery() {
 }
 
 async function applyLoadedPack(pack: LoadedPack) {
+  const key = createPackKey(pack);
+  loadedPacks.set(key, pack);
+  activePackKey = key;
   setActivePack(pack);
+  setPackEnabled(true);
   updatePackUi();
   updateSmb2ChallengeStages();
   updateSmb2StoryOptions();
@@ -705,6 +751,11 @@ function updateSmb2ChallengeStages() {
       setSelectOptions(smb2ChallengeSelect, options);
       smb2ChallengeSelect.value = keys.includes(current) ? current : keys[0];
     }
+  } else if (defaultChallengeOptions.length > 0) {
+    const current = smb2ChallengeSelect.value;
+    setSelectOptions(smb2ChallengeSelect, defaultChallengeOptions);
+    const values = defaultChallengeOptions.map((option) => option.value);
+    smb2ChallengeSelect.value = values.includes(current) ? current : defaultChallengeOptions[0].value;
   }
   const difficulty = smb2ChallengeSelect.value as Smb2ChallengeDifficulty | Mb2wsChallengeDifficulty;
   const stages = order[difficulty] ?? [];
@@ -1233,6 +1284,7 @@ setOverlayVisible(true);
 startButton.disabled = false;
 
 updatePackUi();
+syncPackEnabled();
 void initPackFromQuery().finally(() => {
   updateSmb2ChallengeStages();
   updateSmb2StoryOptions();
@@ -1364,6 +1416,7 @@ difficultySelect?.addEventListener('change', () => {
 });
 
 gameSourceSelect?.addEventListener('change', () => {
+  syncPackEnabled();
   updateGameSourceFields();
 });
 
