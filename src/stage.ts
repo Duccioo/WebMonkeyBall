@@ -48,6 +48,7 @@ const STAGE_CYLINDER_SIZE = 0x1c;
 const STAGE_ANIM_GROUP_MODEL_SIZE = 0x0c;
 const STAGE_FALLOUT_BOX_SIZE = 0x20;
 const STAGE_BG_OBJECT_SIZE = 0x38;
+const STAGE2_BG_OBJECT_SIZE = 0x38;
 const STAGE_BG_ANIM_SIZE = 0x60;
 const STAGE_FLIPBOOK_SIZE = 0x10;
 const STAGE_NIGHT_WINDOW_SIZE = 0x14;
@@ -208,6 +209,16 @@ class StageParser {
     return TEXT_DECODER.decode(this.data.subarray(offset, end));
   }
 
+  parseTextureScroll(offset) {
+    if (offset === null) {
+      return null;
+    }
+    if (offset < 0 || offset + 8 > this.data.length) {
+      return null;
+    }
+    return { speed: this.readVec2(offset) };
+  }
+
   readStringList(offset) {
     if (offset === null) {
       return [];
@@ -275,6 +286,9 @@ class StageParser {
     if (offset === null) {
       return null;
     }
+    if (offset < 0 || offset + STAGE_BG_ANIM_SIZE > this.data.length) {
+      return null;
+    }
     const anim = {
       loopStartSeconds: this.readF32(offset),
       loopEndSeconds: this.readF32(offset + 0x04),
@@ -321,6 +335,9 @@ class StageParser {
 
   parseFlipbooks(offset) {
     if (offset === null) {
+      return null;
+    }
+    if (offset < 0 || offset + STAGE_FLIPBOOK_SIZE > this.data.length) {
       return null;
     }
     const nightWindowAnimCount = this.readS32(offset);
@@ -888,6 +905,40 @@ class StageParserSmb2 extends StageParser {
     return names;
   }
 
+  parseBgObjects(offset, count) {
+    if (offset === null || count <= 0) {
+      return [];
+    }
+    if (offset < 0 || offset >= this.data.length) {
+      return [];
+    }
+    const maxCount = Math.floor((this.data.length - offset) / STAGE2_BG_OBJECT_SIZE);
+    const safeCount = Math.min(count, maxCount);
+    const objs = new Array(safeCount);
+    for (let i = 0; i < safeCount; i += 1) {
+      const base = offset + i * STAGE2_BG_OBJECT_SIZE;
+      const namePtr = this.readPtr(base + 0x04);
+      const effectHeaderPtr = this.readPtr(base + 0x34);
+      const textureScroll = effectHeaderPtr !== null
+        ? this.parseTextureScroll(this.readPtr(effectHeaderPtr + 0x10))
+        : null;
+      objs[i] = {
+        flags: this.readU32(base),
+        name: namePtr ? this.readString(namePtr) : '',
+        pos: this.readVec3(base + 0x0c),
+        rotX: this.readS16(base + 0x18),
+        rotY: this.readS16(base + 0x1a),
+        rotZ: this.readS16(base + 0x1c),
+        scale: this.readVec3(base + 0x20),
+        translucency: this.readF32(base + 0x2c),
+        anim: this.parseBgAnim(this.readPtr(base + 0x30)),
+        flipbooks: this.parseFlipbooks(this.readPtr(base + 0x34)),
+        textureScroll,
+      };
+    }
+    return objs;
+  }
+
   parseAnimGroup(offset) {
     const origin = this.readVec3(offset);
     const initRot = this.readS16Vec(offset + 0x0c);
@@ -936,7 +987,8 @@ class StageParserSmb2 extends StageParser {
     const initialPlaybackState = this.readS32(offset + 0xcc);
     const loopStartSeconds = this.readF32(offset + 0xd0);
     const loopEndSeconds = this.readF32(offset + 0xd4);
-    const textureScroll = this.readPtr(offset + 0xd8);
+    const textureScrollPtr = this.readPtr(offset + 0xd8);
+    const textureScroll = this.parseTextureScroll(textureScrollPtr);
 
     const gridData = this.parseGridCellTris(gridCellTrisPtr, gridCellCountX, gridCellCountZ);
     const triangleCount = gridData.maxIndex + 1;

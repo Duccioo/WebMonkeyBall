@@ -658,6 +658,7 @@ function convertBgObject(obj: any): BgObject {
     translucency: obj.translucency ?? 0,
     anim: convertBgAnim(obj.anim),
     flipbookAnims: convertFlipbookAnims(obj.flipbooks),
+    textureScroll: obj.textureScroll ? { speed: toVec2(obj.textureScroll.speed) } : undefined,
   };
 }
 
@@ -713,6 +714,7 @@ export function convertSmb2StageDef(stage: any): Stage {
           posZKeyframes: keyframesOrEmpty(group.anim.posZKeyframes),
         }
       : null,
+    textureScroll: group.textureScroll ? { speed: toVec2(group.textureScroll.speed) } : undefined,
     coliTris: group.triangles.map((tri: any) => ({
       pos: toVec3(tri.pos),
       normal: toVec3(tri.normal),

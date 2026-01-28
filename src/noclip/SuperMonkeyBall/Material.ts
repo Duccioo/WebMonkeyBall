@@ -77,10 +77,16 @@ function fillWorldSpecularMapping(renderCache: GfxRenderCache, mapping: Material
     mapping.height = WORLD_SPECULAR_TEX_HEIGHT;
 }
 
-function buildDiffuseLayer(mb: GXMaterialBuilder, state: BuildState, colorIn: GX.CC, alphaIn: GX.CA) {
+function buildDiffuseLayer(
+    mb: GXMaterialBuilder,
+    state: BuildState,
+    colorIn: GX.CC,
+    alphaIn: GX.CA,
+    texGenMatrix: GX.TexGenMatrix
+) {
     mb.setTevDirect(state.stage);
     mb.setTevSwapMode(state.stage, SWAP_TABLES[0], SWAP_TABLES[0]);
-    mb.setTexCoordGen(state.texCoord, GX.TexGenType.MTX2x4, state.texGenSrc, GX.TexGenMatrix.TEXMTX1);
+    mb.setTexCoordGen(state.texCoord, GX.TexGenType.MTX2x4, state.texGenSrc, texGenMatrix);
     mb.setTevOrder(state.stage, state.texCoord, state.texMap, GX.RasColorChannelID.COLOR0A0);
 
     mb.setTevColorIn(state.stage, GX.CC.ZERO, GX.CC.TEXC, colorIn, GX.CC.ZERO);
@@ -162,10 +168,16 @@ function buildWorldSpecularLayer(mb: GXMaterialBuilder, state: BuildState, color
     state.texGenSrc++;
 }
 
-function buildAlphaBlendLayer(mb: GXMaterialBuilder, state: BuildState, colorIn: GX.CC, alphaIn: GX.CA) {
+function buildAlphaBlendLayer(
+    mb: GXMaterialBuilder,
+    state: BuildState,
+    colorIn: GX.CC,
+    alphaIn: GX.CA,
+    texGenMatrix: GX.TexGenMatrix
+) {
     mb.setTevDirect(state.stage);
     mb.setTevSwapMode(state.stage, SWAP_TABLES[0], SWAP_TABLES[1]);
-    mb.setTexCoordGen(state.texCoord, GX.TexGenType.MTX2x4, state.texGenSrc, GX.TexGenMatrix.TEXMTX1);
+    mb.setTexCoordGen(state.texCoord, GX.TexGenType.MTX2x4, state.texGenSrc, texGenMatrix);
     mb.setTevOrder(state.stage, state.texCoord, state.texMap, GX.RasColorChannelID.COLOR0A0);
 
     mb.setTevColorIn(state.stage, GX.CC.ZERO, GX.CC.ZERO, GX.CC.ZERO, colorIn);
@@ -397,15 +409,19 @@ export class MaterialInst {
         } else {
             for (let layerIdx = 0; layerIdx < this.tevLayers.length; layerIdx++) {
                 const layer = this.tevLayers[layerIdx];
+                const texGenMatrix =
+                    layer.tevLayerData.flags & Gma.TevLayerFlags.EnableUvScroll
+                        ? GX.TexGenMatrix.TEXMTX1
+                        : GX.TexGenMatrix.TEXMTX2;
                 const layerTypeFlags =
                     layer.tevLayerData.flags &
                     (Gma.TevLayerFlags.TypeAlphaBlend |
                         Gma.TevLayerFlags.TypeViewSpecular |
                         Gma.TevLayerFlags.TypeWorldSpecular);
                 if (layerTypeFlags === 0) {
-                    buildDiffuseLayer(mb, buildState, colorIn, alphaIn);
+                    buildDiffuseLayer(mb, buildState, colorIn, alphaIn, texGenMatrix);
                 } else if (layerTypeFlags & Gma.TevLayerFlags.TypeAlphaBlend) {
-                    buildAlphaBlendLayer(mb, buildState, colorIn, alphaIn);
+                    buildAlphaBlendLayer(mb, buildState, colorIn, alphaIn, texGenMatrix);
                 } else if (layerTypeFlags & Gma.TevLayerFlags.TypeViewSpecular) {
                     buildViewSpecularLayer(mb, buildState, colorIn, alphaIn);
                 } else if (layerTypeFlags & Gma.TevLayerFlags.TypeWorldSpecular) {
@@ -497,6 +513,7 @@ export class MaterialInst {
         materialColor.a *= colorMul.a;
 
         mat4.copy(materialParams.u_TexMtx[1], renderParams.texMtx);
+        mat4.identity(materialParams.u_TexMtx[2]);
 
         ambientColor.r *= colorMul.r;
         ambientColor.g *= colorMul.g;

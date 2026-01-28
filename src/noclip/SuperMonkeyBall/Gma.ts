@@ -117,6 +117,7 @@ export enum TevLayerFlags {
     TypeWorldSpecular = 1 << 15,
 
     Unk16 = 1 << 16,
+    EnableUvScroll = 1 << 17,
 }
 
 export type TevLayer = {

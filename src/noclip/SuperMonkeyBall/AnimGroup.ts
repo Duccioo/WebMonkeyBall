@@ -355,6 +355,12 @@ export class AnimGroup {
         const rp = scratchRenderParams;
         rp.reset();
         rp.lighting = state.lighting;
+        const textureScroll = this.agData.textureScroll;
+        if (textureScroll && (this.stageData.gameSource === "smb2" || this.stageData.gameSource === "mb2ws")) {
+            const timeSeconds = state.time.getAnimTimeSeconds();
+            vec3.set(scratchVec3b, textureScroll.speed[0] * timeSeconds, textureScroll.speed[1] * timeSeconds, 0);
+            mat4.fromTranslation(rp.texMtx, scratchVec3b);
+        }
 
         const viewFromAnimGroup = scratchMat4a;
         mat4.mul(viewFromAnimGroup, viewFromWorld, this.worldFromAg);

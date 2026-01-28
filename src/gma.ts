@@ -29,6 +29,7 @@ export const TevLayerFlags = {
   TypeAlphaBlend: 1 << 13,
   TypeWorldSpecular: 1 << 15,
   Unk16: 1 << 16,
+  EnableUvScroll: 1 << 17,
 };
 
 export const ModelFlags = {

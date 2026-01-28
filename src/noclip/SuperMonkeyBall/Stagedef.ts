@@ -117,6 +117,11 @@ export type BgObject = {
     translucency: number;
     anim: BgAnim | null;
     flipbookAnims: FlipbookAnims | null;
+    textureScroll?: TextureScroll;
+};
+
+export type TextureScroll = {
+    speed: vec2;
 };
 
 // export type TextureScroll = {
@@ -201,6 +206,7 @@ export type AnimGroup = {
     originRot: vec3;
     animType: AnimType;
     anim: AnimGroupAnim | null;
+    textureScroll?: TextureScroll;
     // conveyorVel: vec3;
 
     coliTris: ColiTri[];

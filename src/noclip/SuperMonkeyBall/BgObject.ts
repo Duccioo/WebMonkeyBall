@@ -114,6 +114,18 @@ export class BgObjectInst {
         if (texMtx !== undefined) {
             mat4.copy(renderParams.texMtx, texMtx);
         }
+        const textureScroll = this.bgObjectData.textureScroll;
+        if (textureScroll) {
+            const timeSeconds = state.time.getAnimTimeSeconds();
+            const scroll = scratchVec3c;
+            vec3.set(scroll, textureScroll.speed[0] * timeSeconds, textureScroll.speed[1] * timeSeconds, 0);
+            if (texMtx !== undefined) {
+                mat4.fromTranslation(scratchMat4a, scroll);
+                mat4.mul(renderParams.texMtx, renderParams.texMtx, scratchMat4a);
+            } else {
+                mat4.fromTranslation(renderParams.texMtx, scroll);
+            }
+        }
 
         mat4.mul(renderParams.viewFromModel, viewMatrix, this.worldFromModel);
 
